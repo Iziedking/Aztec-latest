@@ -112,6 +112,10 @@ hint: if you are hosting your rpc leave the RPC and BEACON variables the way the
 ### Now create a docker-compose.yml file:
 
 ```bash
+nano docker-compose.yml
+```
+
+```bash
 services:
   aztec-node:
     container_name: aztec-sequencer
