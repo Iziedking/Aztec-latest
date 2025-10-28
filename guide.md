@@ -216,7 +216,7 @@ docker compose up -d
 Aztec Labs has released version 2.0.4. It is recommended to update your node as soon as possible (within 24 hours) to avoid potential slashing.
 Additionally, a new governance proposal is being put forward. You need to signal your support by configuring the proposer payload.
 
-### For Docker Users
+## For Docker Users
 Use this one-line command to upgrade your node and configure the governance payload:
 
 ```bash
@@ -246,4 +246,69 @@ docker compose pull && \
 docker compose up -d
 ```
 
-ensure to join discord and ask for help where you find errors 
+---
+
+# For CLI users 
+
+### Dependencies: Install Node.js and Yarn if not already
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+npm install -g yarn
+```
+
+### Install/Update Aztec CLI to 2.0.4
+```bash
+echo 'export PATH="$HOME/.aztec/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+aztec-up 2.0.4
+```
+
+### Stop Any Existing Node (If Running)
+```bash
+pkill -f aztec
+```
+
+### clear old data for a clean upgrade (optional)
+```bash
+rm -rf ~/.aztec/testnet/data/
+```
+
+### Start the Node with Governance Configuration
+```bash
+aztec start --node --archiver --sequencer \
+  --network testnet \
+  --l1-rpc-urls your_rpc_url \
+  --l1-consensus-host-urls your_beacon_url \
+  --sequencer.validatorPrivateKey your_private_key \
+  --sequencer.coinbase your_node_walletAddress \
+  --p2p.p2pIp your_vps_ip \
+  --sequencer.governanceProposerPayload 0x0CD09dDEabef70108Ce02576DF1eb333C4244c66
+```
+
+### Run in Background: Wrap in screen -S aztec for detachment:
+```bash
+screen -S aztec
+```
+Paste the aztec start command above
+Detach with Ctrl+A, D; reattach with ``screen -r aztec``
+
+### If Snapshot Sync Issues Occur
+```bash
+aztec start --node --archiver --sequencer \
+  --network testnet \
+  --l1-rpc-urls your_rpc_url \
+  --l1-consensus-host-urls your_beacon_url \
+  --sequencer.validatorPrivateKeys your_private_key \
+  --sequencer.coinbase your_node_walletAddress \
+  --sequencer.governanceProposerPayload 0xDcD9DdeABEF70108ce02576Df1Eb333c4244c666 \
+  --p2p.p2pIp your_vps_ip \
+  --snapshots-url https://snapshots.aztec.graphops.xyz/files/
+```
+ensure to replace all the flags by your actual detals
+
+---
+
+
+## ensure to join discord and ask for help where you find errors 
