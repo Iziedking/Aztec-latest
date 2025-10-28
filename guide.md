@@ -210,4 +210,40 @@ start node
 docker compose up -d
 ```
 
+---
+
+# Upgrading Aztec Node to Version 2.0.4 and Configuring Governance Proposal
+Aztec Labs has released version 2.0.4. It is recommended to update your node as soon as possible (within 24 hours) to avoid potential slashing.
+Additionally, a new governance proposal is being put forward. You need to signal your support by configuring the proposer payload.
+
+### For Docker Users
+Use this one-line command to upgrade your node and configure the governance payload:
+
+```bash
+cd aztec && \
+docker compose down && \
+echo 'GOVERNANCE_PROPOSER_PAYLOAD_ADDRESS=0x0CD09dDEabef70108Ce02576DF1eb333C4244c66' >> .env && \
+sed -i 's|image: aztecprotocol/aztec:.*|image: aztecprotocol/aztec:2.0.4|' docker-compose.yml && \
+sed -i '/environment:/a \      GOVERNANCE_PROPOSER_PAYLOAD_ADDRESS: ${GOVERNANCE_PROPOSER_PAYLOAD_ADDRESS}' docker-compose.yml && \
+docker compose pull && docker compose up -d
+```
+
+### After sucessful update your node logs should look like this:
+<img width="2079" height="1513" alt="image" src="https://github.com/user-attachments/assets/44e968ea-0c2b-4f7d-a96a-3d2304b2cbd7" />
+
+
+
+### If you experience snapshot error (see Image for error logs)
+<img width="1833" height="1214" alt="image" src="https://github.com/user-attachments/assets/7b5a952d-1d16-4da9-95e1-9a6685bd6dca" />
+
+### use this one linear command to solve this issue:
+
+```bash
+cd ~/aztec && \
+docker compose down && \
+sed -i "s|--sequencer'|--sequencer --snapshots-url https://snapshots.aztec.graphops.xyz/files/'|" docker-compose.yml && \
+docker compose pull && \
+docker compose up -d
+```
+
 ensure to join discord and ask for help where you find errors 
