@@ -311,4 +311,213 @@ ensure to replace all the flags by your actual detals
 ---
 
 
+---
+
+# Aztec Node Upgrade to v2.1.2
+
+
+Aztec Labs has released version 2.1.2 for the testnet, introducing a new rollout contract and GSE. This upgrade requires rejoining the testnet by approving the rollout to spend 200k STAKE and generating new BLS keys. The process involves updating your node and registering as a sequencer with the new keys.
+
+**Prerequisites:**
+- Ubuntu server with Docker and Docker Compose installed.
+- Existing Aztec node setup (from previous versions).
+- Sepolia ETH for gas fees (0.2–0.5 ETH recommended for the new address).
+- Your old sequencer private key and ETH RPC URL.
+
+
+## Step 1: Stop the Node
+Shut down your current node to prepare for the upgrade.
+
+```bash
+cd ~/aztec && \
+docker compose down -v
+```
+
+
+## Step 2: Install Aztec CLI
+Install or update the Aztec CLI for key generation and registration.
+
+```bash
+bash -i <(curl -s https://install.aztec.network)
+echo 'export PATH="$HOME/.aztec/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+aztec-up
+```
+
+## Step 3: Install Foundry
+Foundry is used in the script for key generation (cast wallet).
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+source ~/.bashrc
+foundryup
+```
+
+Verify: `cast --version`.
+
+## Step 4: Run the Key Generation and Registration Script
+```bash
+nano aztec-upgrade.sh
+```
+copy and paste this script thanks to community mod @Hendrix for making provisions
+
+```bash
+#!/bin/bash
+
+clear
+
+# Install jq if not present
+if ! command -v jq &> /dev/null; then
+    echo "jq not found. Installing..."
+    sudo apt update && sudo apt install jq -y
+fi
+
+# Source bashrc to ensure PATH includes Aztec CLI
+source ~/.bashrc
+
+# Check if aztec CLI is installed
+if ! command -v aztec &> /dev/null; then
+    echo "Error: aztec command not found. Please install Aztec CLI first:"
+    echo "bash -i <(curl -s https://install.aztec.network)"
+    echo "Then run: echo 'export PATH=\"\$HOME/.aztec/bin:\$PATH\"' >> ~/.bashrc"
+    echo "source ~/.bashrc"
+    echo "aztec-up"
+    exit 1
+fi
+
+# Check if cast (from Foundry) is installed
+if ! command -v cast &> /dev/null; then
+    echo "Error: cast command not found. Please install Foundry:"
+    echo "curl -L https://foundry.paradigm.xyz | bash"
+    echo "source ~/.bashrc"
+    echo "foundryup"
+    exit 1
+fi
+
+# Output CLI version for debugging
+echo "Aztec CLI version: $(aztec --version)"
+
+echo "pls provide your OLD validator info."
+read -sp " put your old Sequencer Private Key (will not be shown): " OLD_PRIVATE_KEY
+echo ""
+echo "Good. Starting..." && echo ""
+read -p " put your sepolia rpc only: " ETH_RPC
+echo "Good. Starting..." && echo ""
+
+# Create keystore directory if not exists
+mkdir -p ~/.aztec/keystore
+
+rm -f ~/.aztec/keystore/key1.json
+echo "BE READY to write down your private key both eth and BLS and your eth address.."
+read -p "Press [Enter] to generate your new keys...."
+
+aztec validator-keys new --fee-recipient 0x0000000000000000000000000000000000000000000000000000000000000000 && echo "" || { echo "Key generation failed."; exit 1; }
+KEYSTORE_FILE=~/.aztec/keystore/key1.json
+
+if [ ! -f "$KEYSTORE_FILE" ]; then
+    echo "Error: Keystore file not generated. Check aztec CLI output above."
+    echo "Possible fix: Run 'aztec-up' to update CLI, or check installation."
+    exit 1
+fi
+
+NEW_ETH_PRIVATE_KEY=$(jq -r '.validators[0].attester.eth' $KEYSTORE_FILE)
+NEW_BLS_PRIVATE_KEY=$(jq -r '.validators[0].attester.bls' $KEYSTORE_FILE)
+
+if [ -z "$NEW_ETH_PRIVATE_KEY" ] || [ -z "$NEW_BLS_PRIVATE_KEY" ]; then
+    echo "Error: Failed to extract keys from keystore. Check jq output or file contents."
+    cat $KEYSTORE_FILE
+    exit 1
+fi
+
+NEW_PUBLIC_ADDRESS=$(cast wallet address --private-key $NEW_ETH_PRIVATE_KEY)
+
+echo "good! Your new keys are below. SAVE THIS INFO SECURELY!"
+echo " - NEW ETH Private Key: $NEW_ETH_PRIVATE_KEY"
+echo " - NEW BLS Private Key: $NEW_BLS_PRIVATE_KEY"
+echo " - NEW Public Address: $NEW_PUBLIC_ADDRESS"
+echo ""
+
+echo "You need to send 0.2 to 0.5 Sepolia eth to this new address:"
+echo " $NEW_PUBLIC_ADDRESS"
+read -p " After the funding txn is confirmed, press [Enter] to continue..." && echo ""
+
+echo "Approving STAKE spending..."
+cast send 0x139d2a7a0881e16332a7d1f8db383a4507e1ea7a "approve(address,uint256)" 0xebd99ff6ff6677205509ae7f3f93d0ca52ac85d6 200000ether --private-key "$OLD_PRIVATE_KEY" --rpc-url "$ETH_RPC" && echo "" || { echo "Approval failed. Check address, key, or RPC."; exit 1; }
+
+echo "joining the testnet yey..."
+aztec add-l1-validator \
+  --l1-rpc-urls "$ETH_RPC" \
+  --network testnet \
+  --private-key "$OLD_PRIVATE_KEY" \
+  --attester "$NEW_PUBLIC_ADDRESS" \
+  --withdrawer "$NEW_PUBLIC_ADDRESS" \
+  --bls-secret-key "$NEW_BLS_PRIVATE_KEY" \
+  --rollup 0xebd99ff6ff6677205509ae7f3f93d0ca52ac85d6 && echo "" || { echo "Registration failed. Check addresses or CLI version."; exit 1; }
+
+echo "All done! u have successfully joined the new testnet now rerun your node with your new pvt and address"
+```
+Save and exit (Ctrl+O, Enter, Ctrl+X in nano)
+
+make it executable 
+```bash
+chmod +x aztec-upgrade.sh
+```
+run 
+```bash
+./aztec-upgrade.sh
+```
+
+**Script Notes:**
+- It prompts for your old private key and ETH RPC.
+- Generates new keys using `aztec validator-keys new`.
+- Outputs new keys—save them securely!
+- Funds the new address with 0.2–0.5 Sepolia ETH (from your wallet).
+- Approves the rollout contract (`0x139d2a7a0881e16332a7d1fDBDB383AA4507E1eA7a`) to spend 200k STAKE to the GSE (`0xebd99fF6fF6677205509ae7F3F93d0ca52ac85d67`).
+- Registers with `aztec add-l1-validator`.
+- If errors occur (e.g., invalid address), check casing or use lowercase hex.
+
+if you face command not found, it means export dint work try this manually
+```bash
+export PATH="/root/.aztec/bin:$PATH"
+source /root/.bashrc
+aztec-up
+aztec --version 
+aztec validator-keys new --help
+```
+
+then retry running script again
+```bash
+./aztec-upgrade.sh
+```
+
+## Step 5: Update Your .env File
+Replace old values with the new ones from Step 4.
+
+```bash
+cd ~/aztec
+nano .env
+```
+
+Update:
+- `VALIDATOR_PRIVATE_KEYS` → New ETH private key (`$NEW_ETH_PRIVATE_KEY`)
+- `COINBASE` → New public address (`$NEW_PUBLIC_ADDRESS`)
+
+Save and exit (Ctrl+O, Enter, Ctrl+X in nano).
+
+## Step 6: Update and Start Your Node
+Update the Docker image to 2.1.2 and restart.
+
+```bash
+sed -i 's|image: aztecprotocol/aztec:.*|image: aztecprotocol/aztec:2.1.2|' docker-compose.yml && \
+docker compose pull && \
+docker compose up -d
+```
+
+## Verification
+- Check logs: `docker compose logs -f`
+- Node status: monitor from [dashtec](https://dashtec.xyz/)
+- Sequencer status on-chain (using cast or explorer): Check if your new attester address is validating.
+- Aztec Scan: [aztec scan](https://aztecscan.xyz/) (search your address).
+
+
 ## ensure to join discord and ask for help where you find errors 
