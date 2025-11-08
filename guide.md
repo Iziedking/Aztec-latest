@@ -344,6 +344,15 @@ source ~/.bashrc
 aztec-up
 ```
 
+if you face command not found, it means export dint work try this manually
+```bash
+export PATH="/root/.aztec/bin:$PATH"
+source /root/.bashrc
+aztec-up
+aztec --version 
+aztec validator-keys new --help
+```
+
 ## Step 3: Install Foundry
 Foundry is used in the script for key generation (cast wallet).
 
@@ -359,92 +368,458 @@ Verify: `cast --version`.
 ```bash
 nano aztec-upgrade.sh
 ```
-copy and paste this script thanks to community mod @Hendrix for making provisions
+i made a script to help you confirm things are right before procedding copy and paste this script 
 
 ```bash
 #!/bin/bash
 
 clear
 
-# Install jq if not present
+##############################################
+# Aztec Node Upgrade to v2.1.2
+# With Smart Approval Checking & PATH Fixes
+##############################################
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Official Aztec v2.1.2 Contract Addresses (Sepolia)
+STAKE_TOKEN="0x139d2a7a0881e16332d7D1F8DB383A4507E1Ea7A"
+GSE_CONTRACT="0xebd99ff0ff6677205509ae73f93d0ca52ac85d67"
+REQUIRED_ALLOWANCE="200000000000000000000000"  # 200k STAKE
+
+##############################################
+# Fix PATH for Foundry and Aztec
+##############################################
+
+# Add common binary paths
+export PATH="$HOME/.foundry/bin:$PATH"
+export PATH="$HOME/.aztec/bin:$PATH"
+export PATH="/root/.foundry/bin:$PATH"
+export PATH="/root/.aztec/bin:$PATH"
+
+# Source shell configs
+[ -f ~/.bashrc ] && source ~/.bashrc
+[ -f ~/.profile ] && source ~/.profile
+
+##############################################
+# Install Dependencies
+##############################################
+
 if ! command -v jq &> /dev/null; then
-    echo "jq not found. Installing..."
+    echo "Installing jq..."
     sudo apt update && sudo apt install jq -y
 fi
 
-# Source bashrc to ensure PATH includes Aztec CLI
-source ~/.bashrc
-
-# Check if aztec CLI is installed
-if ! command -v aztec &> /dev/null; then
-    echo "Error: aztec command not found. Please install Aztec CLI first:"
-    echo "bash -i <(curl -s https://install.aztec.network)"
-    echo "Then run: echo 'export PATH=\"\$HOME/.aztec/bin:\$PATH\"' >> ~/.bashrc"
-    echo "source ~/.bashrc"
-    echo "aztec-up"
-    exit 1
+if ! command -v bc &> /dev/null; then
+    echo "Installing bc..."
+    sudo apt update && sudo apt install bc -y
 fi
 
-# Check if cast (from Foundry) is installed
-if ! command -v cast &> /dev/null; then
-    echo "Error: cast command not found. Please install Foundry:"
-    echo "curl -L https://foundry.paradigm.xyz | bash"
-    echo "source ~/.bashrc"
-    echo "foundryup"
-    exit 1
-fi
+##############################################
+# Validate Prerequisites
+##############################################
 
-# Output CLI version for debugging
-echo "Aztec CLI version: $(aztec --version)"
-
-echo "pls provide your OLD validator info."
-read -sp " put your old Sequencer Private Key (will not be shown): " OLD_PRIVATE_KEY
+echo "=========================================="
+echo "Checking Prerequisites"
+echo "=========================================="
 echo ""
-echo "Good. Starting..." && echo ""
-read -p " put your sepolia rpc only: " ETH_RPC
-echo "Good. Starting..." && echo ""
 
-# Create keystore directory if not exists
+# Check Aztec CLI
+if ! command -v aztec &> /dev/null; then
+    echo -e "${RED}Error: aztec CLI not found${NC}"
+    echo ""
+    echo "Searching for aztec installation..."
+    AZTEC_BIN=$(find ~ -name "aztec" -type f 2>/dev/null | head -n 1)
+    
+    if [ -n "$AZTEC_BIN" ]; then
+        AZTEC_DIR=$(dirname "$AZTEC_BIN")
+        echo "Found aztec at: $AZTEC_BIN"
+        export PATH="$AZTEC_DIR:$PATH"
+        echo "Added to PATH: $AZTEC_DIR"
+        
+        if ! command -v aztec &> /dev/null; then
+            echo -e "${RED}Still can't run aztec. Please install:${NC}"
+            echo "  bash -i <(curl -s https://install.aztec.network)"
+            echo "  echo 'export PATH=\"\$HOME/.aztec/bin:\$PATH\"' >> ~/.bashrc"
+            echo "  source ~/.bashrc && aztec-up"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Aztec CLI not found. Install it:${NC}"
+        echo "  bash -i <(curl -s https://install.aztec.network)"
+        echo "  echo 'export PATH=\"\$HOME/.aztec/bin:\$PATH\"' >> ~/.bashrc"
+        echo "  source ~/.bashrc && aztec-up"
+        exit 1
+    fi
+fi
+
+echo -e "${GREEN}✓ Aztec CLI found${NC}"
+echo "  Version: $(aztec --version)"
+
+# Check Foundry (cast)
+if ! command -v cast &> /dev/null; then
+    echo -e "${RED}Error: cast (Foundry) not found${NC}"
+    echo ""
+    echo "Searching for Foundry installation..."
+    CAST_BIN=$(find ~ -name "cast" -type f 2>/dev/null | head -n 1)
+    
+    if [ -n "$CAST_BIN" ]; then
+        FOUNDRY_DIR=$(dirname "$CAST_BIN")
+        echo "Found cast at: $CAST_BIN"
+        export PATH="$FOUNDRY_DIR:$PATH"
+        echo "Added to PATH: $FOUNDRY_DIR"
+        
+        if ! command -v cast &> /dev/null; then
+            echo -e "${RED}Still can't run cast. Reinstalling Foundry...${NC}"
+            curl -L https://foundry.paradigm.xyz | bash
+            source ~/.bashrc
+            foundryup
+            
+            if ! command -v cast &> /dev/null; then
+                echo -e "${RED}Foundry installation failed${NC}"
+                exit 1
+            fi
+        fi
+    else
+        echo -e "${YELLOW}Foundry not found. Installing...${NC}"
+        curl -L https://foundry.paradigm.xyz | bash
+        source ~/.bashrc
+        
+        # Add to PATH
+        export PATH="$HOME/.foundry/bin:$PATH"
+        
+        # Run foundryup
+        if command -v foundryup &> /dev/null; then
+            foundryup
+        else
+            source "$HOME/.foundry/env"
+            foundryup
+        fi
+        
+        if ! command -v cast &> /dev/null; then
+            echo -e "${RED}Foundry installation failed${NC}"
+            echo "Please install manually:"
+            echo "  curl -L https://foundry.paradigm.xyz | bash"
+            echo "  source ~/.bashrc"
+            echo "  foundryup"
+            exit 1
+        fi
+    fi
+fi
+
+echo -e "${GREEN}✓ Foundry (cast) found${NC}"
+echo "  Version: $(cast --version | head -n 1)"
+echo ""
+
+##############################################
+# Collect User Input
+##############################################
+
+echo "=========================================="
+echo "Aztec Node Upgrade to v2.1.2"
+echo "=========================================="
+echo ""
+
+read -sp "Enter your OLD Sequencer Private Key: " OLD_PRIVATE_KEY
+echo ""
+
+if [ -z "$OLD_PRIVATE_KEY" ]; then
+    echo -e "${RED}Error: Private key cannot be empty${NC}"
+    exit 1
+fi
+
+read -p "Enter your Sepolia RPC URL: " ETH_RPC
+echo ""
+
+if [ -z "$ETH_RPC" ]; then
+    echo -e "${RED}Error: RPC URL cannot be empty${NC}"
+    exit 1
+fi
+
+##############################################
+# Verify Old Address
+##############################################
+
+echo "Validating old sequencer address..."
+OLD_ADDRESS=$(cast wallet address --private-key "$OLD_PRIVATE_KEY" 2>/dev/null)
+
+if [ -z "$OLD_ADDRESS" ]; then
+    echo -e "${RED}Error: Invalid private key${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Old sequencer address: $OLD_ADDRESS${NC}"
+echo ""
+
+##############################################
+# Verify RPC Connection
+##############################################
+
+echo "Testing RPC connection..."
+BLOCK_NUMBER=$(cast block-number --rpc-url "$ETH_RPC" 2>/dev/null)
+
+if [ -z "$BLOCK_NUMBER" ]; then
+    echo -e "${RED}Error: Cannot connect to RPC endpoint${NC}"
+    echo "Please check your RPC URL"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ RPC connected (Block: $BLOCK_NUMBER)${NC}"
+echo ""
+
+##############################################
+# Verify Smart Contracts Exist
+##############################################
+
+echo "Verifying contract addresses..."
+
+STAKE_CODE=$(cast code "$STAKE_TOKEN" --rpc-url "$ETH_RPC" 2>/dev/null)
+if [ -z "$STAKE_CODE" ] || [ "$STAKE_CODE" == "0x" ]; then
+    echo -e "${RED}Error: STAKE token contract not found${NC}"
+    echo "Address: $STAKE_TOKEN"
+    echo "Your RPC may not be synced to Sepolia"
+    exit 1
+fi
+echo -e "${GREEN}✓ STAKE token verified${NC}"
+
+GSE_CODE=$(cast code "$GSE_CONTRACT" --rpc-url "$ETH_RPC" 2>/dev/null)
+if [ -z "$GSE_CODE" ] || [ "$GSE_CODE" == "0x" ]; then
+    echo -e "${RED}Error: GSE contract not found${NC}"
+    echo "Address: $GSE_CONTRACT"
+    exit 1
+fi
+echo -e "${GREEN}✓ GSE contract verified${NC}"
+echo ""
+
+##############################################
+# Check Account Balances
+##############################################
+
+echo "Checking account balances..."
+
+# ETH Balance
+ETH_BALANCE=$(cast balance "$OLD_ADDRESS" --rpc-url "$ETH_RPC" 2>/dev/null)
+ETH_BALANCE_READABLE=$(cast --to-unit "$ETH_BALANCE" ether 2>/dev/null)
+echo "ETH Balance: ${ETH_BALANCE_READABLE} ETH"
+
+if (( $(echo "$ETH_BALANCE_READABLE < 0.05" | bc -l) )); then
+    echo -e "${YELLOW}⚠ Warning: Low ETH balance, you may need more for gas${NC}"
+fi
+
+# STAKE Balance
+STAKE_BALANCE=$(cast call "$STAKE_TOKEN" \
+  "balanceOf(address)(uint256)" \
+  "$OLD_ADDRESS" \
+  --rpc-url "$ETH_RPC" 2>/dev/null)
+
+if [ -n "$STAKE_BALANCE" ] && [ "$STAKE_BALANCE" != "0" ]; then
+    STAKE_BALANCE_READABLE=$(cast --to-unit "$STAKE_BALANCE" ether 2>/dev/null)
+    echo "STAKE Balance: ${STAKE_BALANCE_READABLE} STAKE"
+else
+    echo -e "${RED}STAKE Balance: 0 STAKE${NC}"
+    echo -e "${RED}Error: You need STAKE tokens to join the testnet${NC}"
+    exit 1
+fi
+
+echo ""
+
+##############################################
+# Check Existing Approval
+##############################################
+
+echo "=========================================="
+echo "Checking STAKE Approval Status"
+echo "=========================================="
+echo ""
+
+CURRENT_ALLOWANCE=$(cast call "$STAKE_TOKEN" \
+  "allowance(address,address)(uint256)" \
+  "$OLD_ADDRESS" \
+  "$GSE_CONTRACT" \
+  --rpc-url "$ETH_RPC" 2>/dev/null)
+
+if [ -z "$CURRENT_ALLOWANCE" ]; then
+    echo -e "${RED}Error: Could not check allowance${NC}"
+    exit 1
+fi
+
+echo "Current Allowance: $CURRENT_ALLOWANCE"
+echo "Required Allowance: $REQUIRED_ALLOWANCE"
+echo ""
+
+if [ "$CURRENT_ALLOWANCE" == "$REQUIRED_ALLOWANCE" ]; then
+    echo -e "${GREEN}✓ Approval already exists! (200k STAKE approved)${NC}"
+    echo -e "${GREEN}✓ Skipping approval transaction${NC}"
+    APPROVAL_NEEDED=false
+elif [ "$CURRENT_ALLOWANCE" == "0" ]; then
+    echo -e "${YELLOW}⚠ No approval found${NC}"
+    echo "Need to approve 200k STAKE for GSE contract"
+    APPROVAL_NEEDED=true
+else
+    CURRENT_READABLE=$(cast --to-unit "$CURRENT_ALLOWANCE" ether 2>/dev/null)
+    echo -e "${YELLOW}⚠ Partial approval found: ${CURRENT_READABLE} STAKE${NC}"
+    echo "Need to update approval to 200k STAKE"
+    APPROVAL_NEEDED=true
+fi
+
+echo ""
+
+##############################################
+# Send Approval Transaction (if needed)
+##############################################
+
+if [ "$APPROVAL_NEEDED" = true ]; then
+    echo "=========================================="
+    echo "Sending Approval Transaction"
+    echo "=========================================="
+    echo ""
+    
+    read -p "Press [Enter] to approve 200k STAKE for GSE contract..."
+    
+    echo "Submitting approval transaction..."
+    echo "This may take 1-2 minutes on Sepolia..."
+    echo ""
+    
+    set +e
+    APPROVAL_OUTPUT=$(cast send "$STAKE_TOKEN" \
+      "approve(address,uint256)" \
+      "$GSE_CONTRACT" \
+      "$REQUIRED_ALLOWANCE" \
+      --private-key "$OLD_PRIVATE_KEY" \
+      --rpc-url "$ETH_RPC" \
+      --legacy \
+      --gas-price 30gwei \
+      --confirmations 2 2>&1)
+    
+    APPROVAL_STATUS=$?
+    set -e
+    
+    echo "$APPROVAL_OUTPUT"
+    echo ""
+    
+    if [ $APPROVAL_STATUS -eq 0 ]; then
+        echo -e "${GREEN}✓ Transaction submitted${NC}"
+    else
+        # Check if it's "already known" error (transaction already in mempool)
+        if echo "$APPROVAL_OUTPUT" | grep -q "already known"; then
+            echo -e "${YELLOW}⚠ Transaction already submitted (in mempool)${NC}"
+        else
+            echo -e "${YELLOW}⚠ Transaction command returned error${NC}"
+        fi
+    fi
+    
+    echo ""
+    echo "Waiting 30 seconds for confirmation..."
+    sleep 30
+    
+    # Verify approval succeeded
+    echo "Verifying approval on-chain..."
+    FINAL_ALLOWANCE=$(cast call "$STAKE_TOKEN" \
+      "allowance(address,address)(uint256)" \
+      "$OLD_ADDRESS" \
+      "$GSE_CONTRACT" \
+      --rpc-url "$ETH_RPC" 2>/dev/null)
+    
+    if [ "$FINAL_ALLOWANCE" == "$REQUIRED_ALLOWANCE" ]; then
+        echo -e "${GREEN}✓ SUCCESS! Approval verified (200k STAKE)${NC}"
+    else
+        echo -e "${RED}✗ Approval verification failed${NC}"
+        echo "Expected: $REQUIRED_ALLOWANCE"
+        echo "Got: $FINAL_ALLOWANCE"
+        echo ""
+        echo "Please check transaction on Etherscan:"
+        echo "https://sepolia.etherscan.io/address/$OLD_ADDRESS"
+        echo ""
+        read -p "Press [Enter] if transaction succeeded, or Ctrl+C to abort..."
+    fi
+    
+    echo ""
+fi
+
+##############################################
+# Generate New Keys
+##############################################
+
+echo "=========================================="
+echo "Generating New Validator Keys"
+echo "=========================================="
+echo ""
+
 mkdir -p ~/.aztec/keystore
-
 rm -f ~/.aztec/keystore/key1.json
-echo "BE READY to write down your private key both eth and BLS and your eth address.."
-read -p "Press [Enter] to generate your new keys...."
 
-aztec validator-keys new --fee-recipient 0x0000000000000000000000000000000000000000000000000000000000000000 && echo "" || { echo "Key generation failed."; exit 1; }
+echo "IMPORTANT: Save the keys that will be generated!"
+read -p "Press [Enter] to generate new ETH and BLS keys..."
+echo ""
+
+aztec validator-keys new --fee-recipient 0x0000000000000000000000000000000000000000000000000000000000000000 && echo "" || {
+    echo -e "${RED}Error: Key generation failed${NC}"
+    exit 1
+}
+
 KEYSTORE_FILE=~/.aztec/keystore/key1.json
 
 if [ ! -f "$KEYSTORE_FILE" ]; then
-    echo "Error: Keystore file not generated. Check aztec CLI output above."
-    echo "Possible fix: Run 'aztec-up' to update CLI, or check installation."
+    echo -e "${RED}Error: Keystore file not generated${NC}"
+    echo "Try running: aztec-up"
     exit 1
 fi
 
-NEW_ETH_PRIVATE_KEY=$(jq -r '.validators[0].attester.eth' $KEYSTORE_FILE)
-NEW_BLS_PRIVATE_KEY=$(jq -r '.validators[0].attester.bls' $KEYSTORE_FILE)
+NEW_ETH_PRIVATE_KEY=$(jq -r '.validators[0].attester.eth' "$KEYSTORE_FILE")
+NEW_BLS_PRIVATE_KEY=$(jq -r '.validators[0].attester.bls' "$KEYSTORE_FILE")
 
-if [ -z "$NEW_ETH_PRIVATE_KEY" ] || [ -z "$NEW_BLS_PRIVATE_KEY" ]; then
-    echo "Error: Failed to extract keys from keystore. Check jq output or file contents."
-    cat $KEYSTORE_FILE
+if [ -z "$NEW_ETH_PRIVATE_KEY" ] || [ "$NEW_BLS_PRIVATE_KEY" == "null" ]; then
+    echo -e "${RED}Error: Failed to extract keys from keystore${NC}"
+    cat "$KEYSTORE_FILE"
     exit 1
 fi
 
-NEW_PUBLIC_ADDRESS=$(cast wallet address --private-key $NEW_ETH_PRIVATE_KEY)
+NEW_PUBLIC_ADDRESS=$(cast wallet address --private-key "$NEW_ETH_PRIVATE_KEY")
 
-echo "good! Your new keys are below. SAVE THIS INFO SECURELY!"
-echo " - NEW ETH Private Key: $NEW_ETH_PRIVATE_KEY"
-echo " - NEW BLS Private Key: $NEW_BLS_PRIVATE_KEY"
-echo " - NEW Public Address: $NEW_PUBLIC_ADDRESS"
+echo "=========================================="
+echo "NEW KEYS GENERATED - SAVE THESE SECURELY!"
+echo "=========================================="
+echo ""
+echo "NEW ETH Private Key: $NEW_ETH_PRIVATE_KEY"
+echo "NEW BLS Private Key: $NEW_BLS_PRIVATE_KEY"
+echo "NEW Public Address:  $NEW_PUBLIC_ADDRESS"
+echo ""
+echo "=========================================="
 echo ""
 
-echo "You need to send 0.2 to 0.5 Sepolia eth to this new address:"
-echo " $NEW_PUBLIC_ADDRESS"
-read -p " After the funding txn is confirmed, press [Enter] to continue..." && echo ""
+##############################################
+# Fund New Address
+##############################################
 
-echo "Approving STAKE spending..."
-cast send 0x139d2a7a0881e16332a7d1f8db383a4507e1ea7a "approve(address,uint256)" 0xebd99ff6ff6677205509ae7f3f93d0ca52ac85d6 200000ether --private-key "$OLD_PRIVATE_KEY" --rpc-url "$ETH_RPC" && echo "" || { echo "Approval failed. Check address, key, or RPC."; exit 1; }
+echo "You must send 0.2 to 0.5 Sepolia ETH to your NEW address:"
+echo "$NEW_PUBLIC_ADDRESS"
+echo ""
+read -p "After funding is confirmed, press [Enter] to continue..."
+echo ""
 
-echo "joining the testnet yey..."
+# Verify new address has ETH
+echo "Verifying new address has ETH..."
+NEW_ETH_BALANCE=$(cast balance "$NEW_PUBLIC_ADDRESS" --rpc-url "$ETH_RPC" --ether 2>/dev/null)
+echo "New address balance: $NEW_ETH_BALANCE ETH"
+
+if (( $(echo "$NEW_ETH_BALANCE < 0.1" | bc -l) )); then
+    echo -e "${YELLOW}⚠ Warning: Balance seems low, but continuing...${NC}"
+fi
+echo ""
+
+##############################################
+# Register as Validator
+##############################################
+
+echo "=========================================="
+echo "Registering as Validator on Testnet"
+echo "=========================================="
+echo ""
+
 aztec add-l1-validator \
   --l1-rpc-urls "$ETH_RPC" \
   --network testnet \
@@ -452,9 +827,51 @@ aztec add-l1-validator \
   --attester "$NEW_PUBLIC_ADDRESS" \
   --withdrawer "$NEW_PUBLIC_ADDRESS" \
   --bls-secret-key "$NEW_BLS_PRIVATE_KEY" \
-  --rollup 0xebd99ff6ff6677205509ae7f3f93d0ca52ac85d6 && echo "" || { echo "Registration failed. Check addresses or CLI version."; exit 1; }
+  --rollup "$GSE_CONTRACT" && echo "" || {
+    echo -e "${RED}Error: Registration failed${NC}"
+    echo "Check CLI version, parameters, and network connectivity"
+    exit 1
+}
 
-echo "All done! u have successfully joined the new testnet now rerun your node with your new pvt and address"
+echo -e "${GREEN}✓ Successfully registered as validator!${NC}"
+echo ""
+
+##############################################
+# Final Instructions
+##############################################
+
+echo "=========================================="
+echo "✓ UPGRADE COMPLETE"
+echo "=========================================="
+echo ""
+echo "Next Steps:"
+echo ""
+echo "1. Update your .env file:"
+echo "   cd ~/aztec"
+echo "   nano .env"
+echo ""
+echo "   Update these values:"
+echo "   VALIDATOR_PRIVATE_KEYS=$NEW_ETH_PRIVATE_KEY"
+echo "   COINBASE=$NEW_PUBLIC_ADDRESS"
+echo ""
+echo "2. Update Docker image to v2.1.2:"
+echo "   sed -i 's|image: aztecprotocol/aztec:.*|image: aztecprotocol/aztec:2.1.2|' docker-compose.yml"
+echo ""
+echo "3. Restart your node:"
+echo "   docker compose pull"
+echo "   docker compose up -d"
+echo ""
+echo "4. Verify node is running:"
+echo "   docker compose logs -f"
+echo ""
+echo "5. Check your validator status:"
+echo "   - Aztec Scan: https://aztec-scan.io"
+echo "   - Search for: $NEW_PUBLIC_ADDRESS"
+echo ""
+echo "=========================================="
+echo ""
+echo -e "${GREEN}Congratulations! You're now running v2.1.2${NC}"
+echo ""
 ```
 Save and exit (Ctrl+O, Enter, Ctrl+X in nano)
 
@@ -467,28 +884,9 @@ run
 ./aztec-upgrade.sh
 ```
 
-**Script Notes:**
-- It prompts for your old private key and ETH RPC.
-- Generates new keys using `aztec validator-keys new`.
-- Outputs new keys—save them securely!
-- Funds the new address with 0.2–0.5 Sepolia ETH (from your wallet).
-- Approves the rollout contract (`0x139d2a7a0881e16332a7d1fDBDB383AA4507E1eA7a`) to spend 200k STAKE to the GSE (`0xebd99fF6fF6677205509ae7F3F93d0ca52ac85d67`).
-- Registers with `aztec add-l1-validator`.
-- If errors occur (e.g., invalid address), check casing or use lowercase hex.
-
-if you face command not found, it means export dint work try this manually
-```bash
-export PATH="/root/.aztec/bin:$PATH"
-source /root/.bashrc
-aztec-up
-aztec --version 
-aztec validator-keys new --help
-```
-
-then retry running script again
-```bash
-./aztec-upgrade.sh
-```
+if you face any form of time out and script terminates 
+check with new address generated from CLI (`$NEW_PUBLIC_ADDRESS`) on [dashtec](https://dashtec.xyz/) if you are on queue 
+if you are on queue, just run the following commands below to spin your node
 
 ## Step 5: Update Your .env File
 Replace old values with the new ones from Step 4.
