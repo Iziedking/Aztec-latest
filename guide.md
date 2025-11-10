@@ -883,10 +883,13 @@ run
 ```bash
 ./aztec-upgrade.sh
 ```
+- After the script runs, it prints out what you are required to do to start you node using docker(this is for existing docker users)
+- if you see approval verification failed its possible it went through but due to CLI timeout it's showing failed just proceed with onscreen process from the script.
+- if it actaully failed and script process terminate s with error, manually approve from contract [here](https://sepolia.etherscan.io/address/0x139d2a7a0881e16332d7D1F8DB383A4507E1Ea7A#writeContract)
+<img width="2559" height="1538" alt="image" src="https://github.com/user-attachments/assets/445e1fd9-e87b-4072-ab6c-a9b33396414b" />
 
-if you face any form of time out and script terminates 
-check with new address generated from CLI (`$NEW_PUBLIC_ADDRESS`) on [dashtec](https://dashtec.xyz/) if you are on queue 
-if you are on queue, just run the following commands below to spin your node
+- if you face any form of time out and script terminates check with new address generated from CLI (`$NEW_PUBLIC_ADDRESS`) on [dashtec](https://dashtec.xyz/) if you are on queue 
+- if you are on queue, just run the following commands below to spin your node
 
 ## Step 5: Update Your .env File
 Replace old values with the new ones from Step 4.
@@ -910,6 +913,23 @@ sed -i 's|image: aztecprotocol/aztec:.*|image: aztecprotocol/aztec:2.1.2|' docke
 docker compose pull && \
 docker compose up -d
 ```
+
+- if you are not on the queue, manually retry registration with this command (ensure to use correct details)
+```bash
+aztec add-l1-validator \
+  --l1-rpc-urls <rpc_url> \
+  --network testnet \
+  --private-key <old_wallet_privateKeys> \
+  --attester <new_wallet_generated> \
+  --withdrawer <new_wallet_generated> \
+  --bls-secret-key <bls_secret> \
+  --rollup 0xebd99ff0ff6677205509ae73f93d0ca52ac85d67
+```
+### go back to step 5 after successful registration
+---
+after successfully running up your node your Logs should be like this 
+
+<img width="2176" height="598" alt="image" src="https://github.com/user-attachments/assets/c7f88779-5758-49fb-91bc-ff1f894f0bb7" />
 
 ## Verification
 - Check logs: `docker compose logs -f`
